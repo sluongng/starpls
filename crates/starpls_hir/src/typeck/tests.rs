@@ -1979,6 +1979,46 @@ fail(msg = "foo", attr = "bar")
 }
 
 #[test]
+fn test_applicable_licenses_deprecated() {
+    check_infer(
+        r#"
+def _impl(ctx):
+    pass
+
+my_rule = rule(
+    implementation = _impl,
+    attrs = {
+        "applicable_licenses": attr.label_list(),
+    },
+)
+
+my_rule(
+    name = "t",
+    applicable_licenses = [":lic"],
+)
+"#,
+        expect![[r#"
+            27..34 "my_rule": rule
+            37..41 "rule": def rule(*args, **kwargs) -> Unknown
+            64..69 "_impl": def _impl(ctx) -> Unknown
+            93..114 "\"applicable_licenses\"": Literal["applicable_licenses"]
+            116..120 "attr": attr
+            116..131 "attr.label_list": def label_list(*args, **kwargs) -> Unknown
+            116..133 "attr.label_list()": Attribute
+            83..140 "{\n        \"applicable_licenses\": attr.label_list(),\n    }": dict[string, Attribute]
+            37..143 "rule(\n    implementation = _impl,\n    attrs = {\n        \"applicable_licenses\": attr.label_list(),\n    },\n)": rule
+            145..152 "my_rule": rule
+            165..168 "\"t\"": Literal["t"]
+            197..203 "\":lic\"": Literal[":lic"]
+            196..204 "[\":lic\"]": list[string]
+            145..207 "my_rule(\n    name = \"t\",\n    applicable_licenses = [\":lic\"],\n)": None
+
+            174..193 The "applicable_licenses" attribute is deprecated; use "package_metadata" instead
+        "#]],
+    );
+}
+
+#[test]
 fn test_if_else_stmts() {
     check_infer_with_code_flow_analysis(
         r#"

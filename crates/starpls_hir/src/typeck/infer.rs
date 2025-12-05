@@ -809,23 +809,13 @@ impl TyContext<'_> {
                                     } = param
                                     {
                                         if *deprecated {
-                                            let source_map = source_map(self.db, file);
-                                            let arg_name_node = source_map
-                                                .expr_map_back
-                                                .get(&expr)
-                                                .and_then(|arg_value_ptr| {
-                                                    arg_value_ptr.syntax_node_ptr().try_to_node(
-                                                        &parse(self.db, file).syntax(self.db),
-                                                    )
-                                                })
-                                                .and_then(|arg_value_node| arg_value_node.parent())
-                                                .and_then(ast::KeywordArgument::cast)
-                                                .and_then(|keyword_arg| keyword_arg.name());
-                                            if let Some(arg_name_node) = arg_name_node {
+                                            if let Some(range) =
+                                                self.keyword_arg_name_range(file, expr)
+                                            {
                                                 self.add_diagnostic_for_range(
                                                     file,
                                                     Severity::Info,
-                                                    arg_name_node.syntax().text_range(),
+                                                    range,
                                                     Some(vec![DiagnosticTag::Deprecated]),
                                                     format!(
                                                         "Argument \"{}\" is deprecated",
@@ -855,7 +845,19 @@ impl TyContext<'_> {
                     }
                     TyKind::BuiltinFunction(func) => {
                         let params = func.params(db);
+                        let has_applicable_licenses = args.iter().any(|arg| {
+                            matches!(arg, Argument::Keyword { name, .. } if name.as_str() == "applicable_licenses")
+                        });
+
                         let mut slots: Slots = params[..].into();
+                        if has_applicable_licenses {
+                            slots.slots.push(Slot::Keyword {
+                                name: Name::new_inline("applicable_licenses"),
+                                provider: SlotProvider::Missing,
+                                positional: false,
+                            });
+                        }
+
                         let errors = slots.assign_args(args, None).0;
 
                         for error in errors {
@@ -896,6 +898,33 @@ impl TyContext<'_> {
                             }
                         }
 
+                        if has_applicable_licenses {
+                            let message = "The \"applicable_licenses\" attribute is deprecated; use \"package_metadata\" instead";
+                            for arg in args.iter() {
+                                if let Argument::Keyword { name, expr } = arg {
+                                    if name.as_str() == "applicable_licenses" {
+                                        if let Some(range) = self.keyword_arg_name_range(file, *expr)
+                                        {
+                                            self.add_diagnostic_for_range(
+                                                file,
+                                                Severity::Warning,
+                                                range,
+                                                Some(vec![DiagnosticTag::Deprecated]),
+                                                message,
+                                            );
+                                        } else {
+                                            self.add_expr_diagnostic_warning(
+                                                file,
+                                                *expr,
+                                                Some(vec![DiagnosticTag::Deprecated]),
+                                                message,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // Emit diagnostic for missing parameters.
                         if !missing_params.is_empty() {
                             let mut message = String::from("Argument missing for parameter(s) ");
@@ -917,6 +946,30 @@ impl TyContext<'_> {
                             })
                     }
                     TyKind::Rule(rule) => {
+                        for arg in args.iter() {
+                            if let Argument::Keyword { name, expr } = arg {
+                                if name.as_str() == "applicable_licenses" {
+                                    let message = "The \"applicable_licenses\" attribute is deprecated; use \"package_metadata\" instead";
+                                    if let Some(range) = self.keyword_arg_name_range(file, *expr) {
+                                        self.add_diagnostic_for_range(
+                                            file,
+                                            Severity::Warning,
+                                            range,
+                                            Some(vec![DiagnosticTag::Deprecated]),
+                                            message,
+                                        );
+                                    } else {
+                                        self.add_expr_diagnostic_warning(
+                                            file,
+                                            *expr,
+                                            Some(vec![DiagnosticTag::Deprecated]),
+                                            message,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
                         let mut slots = Slots::from_rule(db, rule);
                         let mut missing_attrs = Vec::new();
                         slots.assign_args(args, None);
@@ -2007,6 +2060,21 @@ impl TyContext<'_> {
             },
             tags,
         });
+    }
+
+    fn keyword_arg_name_range(&self, file: File, expr: ExprId) -> Option<TextRange> {
+        source_map(self.db, file)
+            .expr_map_back
+            .get(&expr)
+            .and_then(|arg_value_ptr| {
+                arg_value_ptr
+                    .syntax_node_ptr()
+                    .try_to_node(&parse(self.db, file).syntax(self.db))
+            })
+            .and_then(|arg_value_node| arg_value_node.parent())
+            .and_then(ast::KeywordArgument::cast)
+            .and_then(|keyword_arg| keyword_arg.name())
+            .map(|name| name.syntax().text_range())
     }
 
     pub(crate) fn infer_param(&mut self, file: File, param: ParamId) -> Ty {
