@@ -658,6 +658,24 @@ impl Callable {
                 })
             })
     }
+
+    pub fn tag_attrs_source(&self, db: &dyn Db) -> Option<InFile<ast::DictExpr>> {
+        let attrs_expr = match self.0 {
+            CallableInner::Tag(ref tag_class) => tag_class.attrs_expr?,
+            _ => return None,
+        };
+
+        source_map(db, attrs_expr.file)
+            .expr_map_back
+            .get(&attrs_expr.value)
+            .and_then(|ptr| ptr.clone().cast::<ast::DictExpr>())
+            .and_then(|ptr| {
+                Some(InFile {
+                    file: attrs_expr.file,
+                    value: ptr.try_to_node(&parse(db, attrs_expr.file).syntax(db))?,
+                })
+            })
+    }
 }
 
 impl From<FunctionDef> for Callable {
