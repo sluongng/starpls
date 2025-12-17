@@ -475,6 +475,16 @@ impl TyContext<'_> {
                 field,
             } => {
                 let receiver_ty = self.infer_expr(file, *dot_expr);
+                // If the receiver could be `Unknown` (e.g. `x = param if cond else None`),
+                // attempting to validate field access on the union is usually just noise.
+                // Prefer returning `Unknown` over emitting "Cannot access field" warnings.
+                if let TyKind::Union(tys) = receiver_ty.kind() {
+                    if tys.iter().any(|ty| {
+                        matches!(ty.kind(), TyKind::Unknown | TyKind::Unbound | TyKind::Any)
+                    }) {
+                        return self.unknown_ty();
+                    }
+                }
                 match receiver_ty.kind() {
                     TyKind::Unknown
                     | TyKind::Unbound
@@ -1699,6 +1709,45 @@ impl TyContext<'_> {
             let curr_node = &cfg.flow_nodes[curr_node_id];
             let curr_node_ty = match &curr_node {
                 FlowNode::Start => start_ty.clone(),
+                FlowNode::Assume {
+                    expr, antecedent, ..
+                } => {
+                    let antecedent_ty = self.infer_ref_from_flow_node(
+                        cfg,
+                        file,
+                        execution_scope,
+                        name,
+                        start_ty,
+                        *antecedent,
+                    )?;
+
+                    let assumed_name = match module(self.db, file).exprs.get(*expr).unwrap() {
+                        Expr::Name { name } => Some(name),
+                        _ => None,
+                    };
+
+                    if assumed_name == Some(name) {
+                        // For `if x:` style tests, we can safely remove `None` from `x` in the
+                        // truthy branch.
+                        match curr_node {
+                            FlowNode::Assume {
+                                kind: crate::def::codeflow::AssumeKind::Truthy,
+                                ..
+                            } => match antecedent_ty.kind() {
+                                TyKind::None => Ty::never(),
+                                TyKind::Union(tys) => Ty::union(
+                                    tys.iter()
+                                        .filter(|ty| !matches!(ty.kind(), TyKind::None))
+                                        .cloned(),
+                                ),
+                                _ => antecedent_ty,
+                            },
+                            _ => antecedent_ty,
+                        }
+                    } else {
+                        antecedent_ty
+                    }
+                }
                 FlowNode::Assign {
                     expr,
                     name: node_name,
@@ -1769,6 +1818,9 @@ impl TyContext<'_> {
             true
         } else {
             match &cfg.flow_nodes[from_node] {
+                FlowNode::Assume { antecedent, .. } => {
+                    self.exists_flow_path(cfg, file, *antecedent, to_node)
+                }
                 FlowNode::Assign { antecedent, .. } => {
                     self.exists_flow_path(cfg, file, *antecedent, to_node)
                 }

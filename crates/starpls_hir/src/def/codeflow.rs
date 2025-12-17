@@ -23,9 +23,20 @@ pub(crate) mod pretty;
 
 pub(crate) type FlowNodeId = Id<FlowNode>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AssumeKind {
+    Truthy,
+    Falsy,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum FlowNode {
     Start,
+    Assume {
+        expr: ExprId,
+        kind: AssumeKind,
+        antecedent: FlowNodeId,
+    },
     Assign {
         expr: ExprId,
         name: Name,
@@ -122,24 +133,35 @@ impl<'a> CodeFlowLoweringContext<'a> {
                 self.lower_expr(*test);
 
                 let pre_if_node = self.curr_node;
+                let true_node = self.new_flow_node(FlowNode::Assume {
+                    expr: *test,
+                    kind: AssumeKind::Truthy,
+                    antecedent: pre_if_node,
+                });
+                let false_node = self.new_flow_node(FlowNode::Assume {
+                    expr: *test,
+                    kind: AssumeKind::Falsy,
+                    antecedent: pre_if_node,
+                });
                 let post_if_node = self.new_flow_node(FlowNode::Branch {
                     antecedents: Vec::new(),
                 });
+                self.curr_node = true_node;
                 self.lower_stmts(if_stmts);
                 self.push_antecedent(post_if_node, self.curr_node);
                 match elif_or_else_stmts {
                     Some(Either::Left(elif_stmt)) => {
-                        self.curr_node = pre_if_node;
+                        self.curr_node = false_node;
                         self.lower_stmt(*elif_stmt);
                         self.push_antecedent(post_if_node, self.curr_node);
                     }
                     Some(Either::Right(else_stmts)) => {
-                        self.curr_node = pre_if_node;
+                        self.curr_node = false_node;
                         self.lower_stmts(else_stmts);
                         self.push_antecedent(post_if_node, self.curr_node);
                     }
                     _ => {
-                        self.push_antecedent(post_if_node, pre_if_node);
+                        self.push_antecedent(post_if_node, false_node);
                     }
                 }
 
@@ -446,13 +468,23 @@ if x > 0:
                     }
 
                     'bb2: {
-                        data: Branch { antecedents: [Id { idx: 3 }, Id { idx: 1 }] }
-                        antecedents: ['bb3, 'bb1]
+                        data: Assume { expr: Id { idx: 2 }, kind: Truthy, antecedent: Id { idx: 1 } }
+                        antecedents: ['bb1]
                     }
 
                     'bb3: {
-                        data: Assign { expr: Id { idx: 3 }, name: Name("y"), execution_scope: Module, source: Id { idx: 4 }, antecedent: Id { idx: 1 } }
+                        data: Assume { expr: Id { idx: 2 }, kind: Falsy, antecedent: Id { idx: 1 } }
                         antecedents: ['bb1]
+                    }
+
+                    'bb4: {
+                        data: Branch { antecedents: [Id { idx: 5 }, Id { idx: 3 }] }
+                        antecedents: ['bb5, 'bb3]
+                    }
+
+                    'bb5: {
+                        data: Assign { expr: Id { idx: 3 }, name: Name("y"), execution_scope: Module, source: Id { idx: 4 }, antecedent: Id { idx: 2 } }
+                        antecedents: ['bb2]
                     }
 
             "#]],
@@ -855,8 +887,8 @@ for i in [1, 2, 3]:
                     }
 
                     'bb3: {
-                        data: Loop { antecedents: [Id { idx: 2 }, Id { idx: 3 }] }
-                        antecedents: ['bb2, 'bb3]
+                        data: Loop { antecedents: [Id { idx: 2 }, Id { idx: 5 }, Id { idx: 6 }] }
+                        antecedents: ['bb2, 'bb5, 'bb6]
                     }
 
                     'bb4: {
@@ -865,6 +897,16 @@ for i in [1, 2, 3]:
                     }
 
                     'bb5: {
+                        data: Assume { expr: Id { idx: 7 }, kind: Truthy, antecedent: Id { idx: 3 } }
+                        antecedents: ['bb3]
+                    }
+
+                    'bb6: {
+                        data: Assume { expr: Id { idx: 7 }, kind: Falsy, antecedent: Id { idx: 3 } }
+                        antecedents: ['bb3]
+                    }
+
+                    'bb7: {
                         data: Branch { antecedents: [] }
                         antecedents: []
                     }

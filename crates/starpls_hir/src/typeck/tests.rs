@@ -282,6 +282,52 @@ h, i = [4, 5, 6]
 }
 
 #[test]
+fn test_no_field_access_warning_for_unknown_optional_receiver() {
+    check_infer(
+        r#"
+def f(y):
+    x = y if True else None
+    if x:
+        x.foo
+"#,
+        expect![[r#"
+            15..16 "x": Unknown | None
+            19..20 "y": Unknown
+            24..28 "True": Literal[True]
+            34..38 "None": None
+            19..38 "y if True else None": Unknown | None
+            46..47 "x": Unknown | None
+            57..58 "x": Unknown | None
+            57..62 "x.foo": Unknown
+        "#]],
+    );
+}
+
+#[test]
+fn test_truthy_narrowing_strips_none_for_calls() {
+    check_infer_with_code_flow_analysis(
+        r#"
+def g():
+    pass
+
+f = g if True else None
+if f:
+    f()
+"#,
+        expect![[r#"
+            20..21 "f": def g() -> Unknown | None
+            24..25 "g": def g() -> Unknown
+            29..33 "True": Literal[True]
+            39..43 "None": None
+            24..43 "g if True else None": def g() -> Unknown | None
+            47..48 "f": def g() -> Unknown | None
+            54..55 "f": def g() -> Unknown
+            54..57 "f()": Unknown
+        "#]],
+    );
+}
+
+#[test]
 fn test_common_type() {
     check_infer(
         r#"

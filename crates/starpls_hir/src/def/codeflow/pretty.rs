@@ -55,6 +55,9 @@ impl<'a> CodeFlowGraphPrettyCtx<'a> {
                 FlowNode::Assign { antecedent, .. } => {
                     self.result.push_str(&self.format_flow_node_id(*antecedent));
                 }
+                FlowNode::Assume { antecedent, .. } => {
+                    self.result.push_str(&self.format_flow_node_id(*antecedent));
+                }
                 FlowNode::Branch { antecedents } | FlowNode::Loop { antecedents } => {
                     for (i, antecedent) in antecedents.iter().enumerate() {
                         if i > 0 {
