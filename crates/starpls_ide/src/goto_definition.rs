@@ -144,6 +144,11 @@ impl<'a> GotoDefinitionHandler<'a> {
             return Some(location_links);
         }
 
+        // Only handle the field part of the dot expression.
+        if dot_expr.field()?.name()?.text() != self.token.text() {
+            return None;
+        }
+
         let ty = self.sema.type_of_expr(self.file, &dot_expr.expr()?)?;
 
         if let Some(strukt) = ty.try_as_inline_struct() {
@@ -173,6 +178,12 @@ impl<'a> GotoDefinitionHandler<'a> {
             // Check for provider field definition. This only handles the case where the provider
             // fields are specified in a dictionary literal.
             return self.find_name_in_dict_expr(provider_fields);
+        } else if let Some(tag_classes) = ty.bzlmod_tag_classes_source(self.sema.db) {
+            // Check for bzlmod tag class definition (e.g. `tags.platform`).
+            return self.find_name_in_dict_expr(tag_classes);
+        } else if let Some(attrs) = ty.bzlmod_tag_instance_attrs_source(self.sema.db) {
+            // Check for bzlmod tag attribute definition (e.g. `platform_tag.container_image`).
+            return self.find_name_in_dict_expr(attrs);
         } else {
             None
         }
@@ -1071,6 +1082,82 @@ _config_tag = tag_class(
             actual.is_none(),
             "expected no goto definition, got {actual:?}"
         );
+    }
+
+    #[test]
+    fn test_bzlmod_tag_instance_dot_field_goes_to_tag_class_attr() {
+        let (mut analysis, loader) = Analysis::new_for_test();
+        let mut fixture = Fixture::new(&mut analysis.db);
+
+        fixture.add_file_with_options(
+            &mut analysis.db,
+            "//:ext.bzl",
+            r#"
+def _ext_impl(mctx):
+    for m in mctx.modules:
+        tags = m.tags
+        platform_tag = tags.platform[0] if tags.platform else None
+        if platform_tag:
+            platform_tag.cont$0ainer_image
+        break
+
+buildbuddy = module_extension(
+    implementation = _ext_impl,
+    tag_classes = {
+        "platform": tag_class(
+            attrs = {
+                "container_image": attr.string(),
+                #^^^^^^^^^^^^^^^^
+            },
+        ),
+    },
+)
+"#,
+            Dialect::Bazel,
+            Some(Bazel {
+                api_context: APIContext::Bzl,
+                is_external: false,
+            }),
+        );
+
+        loader.add_files_from_fixture(&analysis.db, &fixture);
+        check_goto_definition_from_fixture(analysis, fixture, false);
+    }
+
+    #[test]
+    fn test_bzlmod_tags_dot_field_goes_to_tag_classes_entry() {
+        let (mut analysis, loader) = Analysis::new_for_test();
+        let mut fixture = Fixture::new(&mut analysis.db);
+
+        fixture.add_file_with_options(
+            &mut analysis.db,
+            "//:ext.bzl",
+            r#"
+def _ext_impl(mctx):
+    for m in mctx.modules:
+        tags = m.tags
+        tags.plat$0form
+        break
+
+buildbuddy = module_extension(
+    implementation = _ext_impl,
+    tag_classes = {
+        "platform": tag_class(
+        #^^^^^^^^^
+            attrs = {},
+        ),
+    },
+)
+"#,
+            Dialect::Bazel,
+            Some(Bazel {
+                api_context: APIContext::Bzl,
+                is_external: false,
+            }),
+        );
+
+        loader.add_files_from_fixture(&analysis.db, &fixture);
+        check_goto_definition_from_fixture(analysis, fixture, false);
     }
 
     #[test]

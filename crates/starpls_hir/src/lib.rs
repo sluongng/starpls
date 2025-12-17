@@ -496,6 +496,52 @@ impl Type {
             _ => None,
         }
     }
+
+    pub fn bzlmod_tag_classes_source(&self, db: &dyn Db) -> Option<InFile<ast::DictExpr>> {
+        let module_extension = match self.ty.kind() {
+            TyKind::BzlmodTags(module_extension) => module_extension.clone(),
+            TyKind::Union(tys) => tys.iter().find_map(|ty| match ty.kind() {
+                TyKind::BzlmodTags(module_extension) => Some(module_extension.clone()),
+                _ => None,
+            })?,
+            _ => return None,
+        };
+
+        let dict_expr = module_extension.tag_classes_expr?;
+        source_map(db, dict_expr.file)
+            .expr_map_back
+            .get(&dict_expr.value)
+            .and_then(|ptr| ptr.clone().cast::<ast::DictExpr>())
+            .and_then(|ptr| {
+                Some(InFile {
+                    file: dict_expr.file,
+                    value: ptr.try_to_node(&parse(db, dict_expr.file).syntax(db))?,
+                })
+            })
+    }
+
+    pub fn bzlmod_tag_instance_attrs_source(&self, db: &dyn Db) -> Option<InFile<ast::DictExpr>> {
+        let tag_class = match self.ty.kind() {
+            TyKind::BzlmodTagInstance(tag_class) => tag_class.clone(),
+            TyKind::Union(tys) => tys.iter().find_map(|ty| match ty.kind() {
+                TyKind::BzlmodTagInstance(tag_class) => Some(tag_class.clone()),
+                _ => None,
+            })?,
+            _ => return None,
+        };
+
+        let dict_expr = tag_class.attrs_expr?;
+        source_map(db, dict_expr.file)
+            .expr_map_back
+            .get(&dict_expr.value)
+            .and_then(|ptr| ptr.clone().cast::<ast::DictExpr>())
+            .and_then(|ptr| {
+                Some(InFile {
+                    file: dict_expr.file,
+                    value: ptr.try_to_node(&parse(db, dict_expr.file).syntax(db))?,
+                })
+            })
+    }
 }
 
 impl From<Ty> for Type {
