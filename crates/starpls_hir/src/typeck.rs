@@ -379,19 +379,85 @@ impl Ty {
                         )
                     }),
             ),
+            TyKind::BzlmodModuleCtx(module_extension) => Fields::Static(
+                vec![(
+                    Field(FieldInner::StaticField {
+                        name: "modules",
+                        doc: Some("Modules that used this extension."),
+                    }),
+                    Ty::list(TyKind::BzlmodModule(module_extension.clone()).intern()),
+                )]
+                .into_iter(),
+            ),
+            TyKind::BzlmodModule(module_extension) => Fields::Static(
+                vec![
+                    (
+                        Field(FieldInner::StaticField {
+                            name: "is_root",
+                            doc: Some("True if this is the root module."),
+                        }),
+                        Ty::bool(),
+                    ),
+                    (
+                        Field(FieldInner::StaticField {
+                            name: "tags",
+                            doc: Some("Tags for this module extension."),
+                        }),
+                        TyKind::BzlmodTags(module_extension.clone()).intern(),
+                    ),
+                ]
+                .into_iter(),
+            ),
+            TyKind::BzlmodTags(module_extension) => {
+                let mut fields = Vec::new();
+                if let Some(tag_classes) = module_extension.tag_classes.as_ref() {
+                    for data in tag_classes.iter() {
+                        fields.push((
+                            Field(FieldInner::StructField {
+                                name: data.name.clone(),
+                                doc: data
+                                    .tag_class
+                                    .doc
+                                    .as_ref()
+                                    .map(|doc| doc.value(db).to_string()),
+                            }),
+                            Ty::list(TyKind::BzlmodTagInstance(data.tag_class.clone()).intern()),
+                        ));
+                    }
+                }
+                Fields::Static(fields.into_iter())
+            }
+            TyKind::BzlmodTagInstance(tag_class) => {
+                let mut fields = Vec::new();
+                if let Some(attrs) = tag_class.attrs.as_ref() {
+                    for data in attrs.iter() {
+                        fields.push((
+                            Field(FieldInner::StructField {
+                                name: data.name.clone(),
+                                doc: data.attr.doc.as_ref().map(|doc| doc.value(db).to_string()),
+                            }),
+                            data.attr.expected_ty(),
+                        ));
+                    }
+                }
+                Fields::Static(fields.into_iter())
+            }
             TyKind::Target => {
                 let label_ty = builtin_types(db, Dialect::Bazel)
                     .types(db)
                     .get("Label")
                     .cloned()
                     .unwrap_or_else(Ty::unknown);
-                Fields::Static(iter::once((
-                    Field(FieldInner::StaticField {
-                        name: "label",
-                        doc: Some("The identifier of the target."),
-                    }),
-                    label_ty,
-                )))
+                Fields::Static(
+                    vec![(
+                        Field(FieldInner::StaticField {
+                            name: "label",
+                            doc: Some("The identifier of the target."),
+                        }),
+                        label_ty,
+                    )]
+                    .into_iter(),
+                )
             }
             _ => return None,
         };
@@ -1331,6 +1397,18 @@ pub(crate) enum TyKind {
 
     /// A Bazel module extension proxy.
     ModuleExtensionProxy(Arc<ModuleExtension>),
+
+    /// A bzlmod module extension implementation context (the `mctx` parameter).
+    BzlmodModuleCtx(Arc<ModuleExtension>),
+
+    /// A bzlmod module object in `mctx.modules`.
+    BzlmodModule(Arc<ModuleExtension>),
+
+    /// A struct-like view of `module.tags` for a specific module extension.
+    BzlmodTags(Arc<ModuleExtension>),
+
+    /// A bzlmod tag instance (an element of `module.tags.<tag_name>`).
+    BzlmodTagInstance(Arc<TagClass>),
 
     /// A Bazel tag (e.g. `maven.artifact()`).
     Tag(Arc<TagClass>),

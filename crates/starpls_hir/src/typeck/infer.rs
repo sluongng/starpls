@@ -2136,11 +2136,14 @@ impl TyContext<'_> {
         }
 
         let ty = self
-            .shared_state
-            .options
-            .infer_ctx_attributes
-            .then(|| self.infer_param_from_rule_usage(file, param))
-            .and_then(|ty| ty)
+            .infer_param_from_module_extension_usage(file, param)
+            .or_else(|| {
+                self.shared_state
+                    .options
+                    .infer_ctx_attributes
+                    .then(|| self.infer_param_from_rule_usage(file, param))
+                    .flatten()
+            })
             .unwrap_or_else(|| {
                 let module = module(self.db, file);
                 let usage = module.param_to_def_stmt.get(&param).map(|(stmt, _)| *stmt);
@@ -2201,6 +2204,28 @@ impl TyContext<'_> {
                     ),
                     _ => None,
                 }
+            }
+            _ => None,
+        }
+    }
+
+    fn infer_param_from_module_extension_usage(
+        &mut self,
+        file: File,
+        param: ParamId,
+    ) -> Option<Ty> {
+        let module = module(self.db, file);
+        let name = match module[module.param_to_def_stmt.get(&param)?.0] {
+            Stmt::Def { func, .. } if func.params(self.db).len() == 1 => func.name(self.db),
+            _ => return None,
+        };
+
+        match self
+            .infer_expr(file, *module.call_expr_with_impl_fn.get(&name)?)
+            .kind()
+        {
+            TyKind::ModuleExtension(module_extension) => {
+                Some(TyKind::BzlmodModuleCtx(module_extension.clone()).intern())
             }
             _ => None,
         }

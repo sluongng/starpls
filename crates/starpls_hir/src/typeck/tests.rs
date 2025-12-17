@@ -55,6 +55,9 @@ fn check_infer_with_options(input: &str, expect: Expect, options: InferenceOptio
     builder.add_function("rule");
     builder.add_function("macro");
     builder.add_function("struct");
+    builder.add_function("tag_class");
+    builder.add_function("module_extension");
+    builder.add_function("use_extension");
     builder.add_type(FixtureType::new("File", vec![], vec![]));
     builder.add_type(FixtureType::new(
         "ctx",
@@ -202,6 +205,96 @@ fn check_infer_with_options(input: &str, expect: Expect, options: InferenceOptio
     expect.assert_eq(&res);
 }
 
+fn collect_typeck_diagnostics(
+    input: &str,
+    options: InferenceOptions,
+) -> Vec<starpls_common::Diagnostic> {
+    let mut builder = TestDatabaseBuilder::default();
+    builder.add_function("provider");
+    builder.add_function("rule");
+    builder.add_function("macro");
+    builder.add_function("struct");
+    builder.add_function("tag_class");
+    builder.add_function("module_extension");
+    builder.add_function("use_extension");
+    builder.add_type(FixtureType::new("File", vec![], vec![]));
+    builder.add_type(FixtureType::new(
+        "ctx",
+        vec![
+            ("attr", "struct"),
+            ("executable", "struct"),
+            ("file", "struct"),
+            ("files", "struct"),
+            ("outputs", "struct"),
+        ],
+        vec![],
+    ));
+    builder.add_type(FixtureType::new(
+        "repository_ctx",
+        vec![("attr", "struct")],
+        vec![],
+    ));
+    builder.add_type(FixtureType::new(
+        "DefaultInfo",
+        vec![("file", "string")],
+        vec![],
+    ));
+    builder.add_type(FixtureType::new(
+        "FeatureFlagInfo",
+        vec![("value", "string")],
+        vec![],
+    ));
+    builder.add_type(FixtureType::new(
+        "config_common",
+        vec![],
+        vec!["FeatureFlagInfo"],
+    ));
+    builder.add_function("DefaultInfo");
+    builder.add_type(FixtureType::new(
+        "PyInfo",
+        vec![("field1", "string")],
+        vec![],
+    ));
+    builder.add_type(FixtureType::new("CcInfo", vec![], vec![]));
+    builder.add_type(FixtureType::new(
+        "attr",
+        vec![],
+        vec![
+            "bool",
+            "int",
+            "int_list",
+            "label",
+            "label_keyed_string_dict",
+            "label_list",
+            "output",
+            "output_list",
+            "string",
+            "string_dict",
+            "string_keyed_label_dict",
+            "string_list",
+            "string_list_dict",
+        ],
+    ));
+    builder.add_global("attr", "attr");
+    builder.add_global("config_common", "config_common");
+    builder.add_global("PyInfo", "PyInfo");
+    builder.set_inference_options(options);
+
+    let mut db = builder.build();
+    let file_id = FileId(0);
+    let file = db.create_file(
+        file_id,
+        Dialect::Bazel,
+        Some(FileInfo::Bazel {
+            api_context: APIContext::Bzl,
+            is_external: false,
+        }),
+        input.to_string(),
+    );
+
+    db.gcx.with_tcx(&db, |tcx| tcx.diagnostics_for_file(file))
+}
+
 #[test]
 fn test_infer_basic_exprs() {
     check_infer(
@@ -324,6 +417,53 @@ if f:
             54..55 "f": def g() -> Unknown
             54..57 "f()": Unknown
         "#]],
+    );
+}
+
+#[test]
+fn test_bzlmod_tag_instances_typed_from_tag_class() {
+    let diagnostics = collect_typeck_diagnostics(
+        r#"
+def _ext_impl(mctx):
+    for m in mctx.modules:
+        tags = m.tags
+        platform_tag = tags.platform[0] if tags.platform else None
+        if platform_tag:
+            _ = platform_tag.container_image
+            _ = platform_tag.buildbuddy_container_image
+        break
+
+buildbuddy = module_extension(
+    implementation = _ext_impl,
+    tag_classes = {
+        "platform": tag_class(
+            attrs = {
+                "container_image": attr.string(),
+                "buildbuddy_container_image": attr.string(),
+            },
+        ),
+    },
+)
+"#,
+        InferenceOptions {
+            use_code_flow_analysis: true,
+            allow_unused_definitions: true,
+            ..Default::default()
+        },
+    );
+
+    let field_warnings = diagnostics
+        .iter()
+        .filter(|d| d.message.contains("Cannot access field"))
+        .collect::<Vec<_>>();
+    assert!(
+        field_warnings.is_empty(),
+        "unexpected field warnings:\n{}",
+        field_warnings
+            .iter()
+            .map(|d| d.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 }
 
