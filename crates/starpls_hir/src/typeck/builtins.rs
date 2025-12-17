@@ -417,12 +417,14 @@ impl BuiltinFunction {
 
             (None, "tag_class") => {
                 let mut attrs = None;
+                let mut attrs_expr = None;
                 let mut doc = None;
                 for (arg, ty) in args {
                     if let Argument::Keyword { name, .. } = arg {
                         match name.as_str() {
                             "attrs" => {
                                 if let TyKind::Dict(_, _, Some(lit)) = ty.kind() {
+                                    attrs_expr = lit.expr;
                                     attrs = Some(
                                         lit.known_keys
                                             .iter()
@@ -450,7 +452,11 @@ impl BuiltinFunction {
                     }
                 }
 
-                TyKind::TagClass(Arc::new(TagClass { attrs, doc }))
+                TyKind::TagClass(Arc::new(TagClass {
+                    attrs,
+                    attrs_expr,
+                    doc,
+                }))
             }
 
             (None, "module_extension") => {
