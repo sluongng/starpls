@@ -139,7 +139,8 @@ impl<'a> GotoDefinitionHandler<'a> {
     }
 
     fn handle_dot_expr(&self, dot_expr: ast::DotExpr) -> Option<Vec<LocationLink>> {
-        if let Some(location_links) = self.handle_module_extension_proxy_dot_expr(dot_expr.clone()) {
+        if let Some(location_links) = self.handle_module_extension_proxy_dot_expr(dot_expr.clone())
+        {
             return Some(location_links);
         }
 
@@ -244,7 +245,9 @@ impl<'a> GotoDefinitionHandler<'a> {
             ast::Expression::Call(call_expr) => self.is_name_call_expr(&call_expr, "use_extension"),
             ast::Expression::Name(name_ref) => {
                 let name = Name::from_ast_name_ref(name_ref.clone());
-                let scope = self.sema.scope_for_expr(self.file, &ast::Expression::Name(name_ref))?;
+                let scope = self
+                    .sema
+                    .scope_for_expr(self.file, &ast::Expression::Name(name_ref))?;
                 scope
                     .resolve_name(&name)
                     .into_iter()
@@ -327,7 +330,10 @@ impl<'a> GotoDefinitionHandler<'a> {
         match rhs? {
             ast::Expression::Call(call_expr) => self
                 .is_name_call_expr(&call_expr, "module_extension")
-                .map(|call_expr| InFile { file, value: call_expr }),
+                .map(|call_expr| InFile {
+                    file,
+                    value: call_expr,
+                }),
             ast::Expression::Name(name_ref) => {
                 let name = Name::from_ast_name_ref(name_ref);
                 let module_scope = self.sema.scope_for_module(file);
@@ -498,7 +504,11 @@ impl<'a> GotoDefinitionHandler<'a> {
         }])
     }
 
-    fn resolve_tag_class_call_expr(&self, def: ScopeDef, depth: u8) -> Option<InFile<ast::CallExpr>> {
+    fn resolve_tag_class_call_expr(
+        &self,
+        def: ScopeDef,
+        depth: u8,
+    ) -> Option<InFile<ast::CallExpr>> {
         if depth > 12 {
             return None;
         }
@@ -518,7 +528,10 @@ impl<'a> GotoDefinitionHandler<'a> {
         match rhs? {
             ast::Expression::Call(call_expr) => self
                 .is_name_call_expr(&call_expr, "tag_class")
-                .map(|call_expr| InFile { file, value: call_expr }),
+                .map(|call_expr| InFile {
+                    file,
+                    value: call_expr,
+                }),
             ast::Expression::Name(name_ref) => {
                 let name = Name::from_ast_name_ref(name_ref);
                 let module_scope = self.sema.scope_for_module(file);
@@ -560,6 +573,14 @@ impl<'a> GotoDefinitionHandler<'a> {
             ast::LiteralKind::String(s) => s.value()?,
             _ => return None,
         };
+
+        // String literals are used in many non-label contexts (e.g. dict keys like
+        // `attrs = { "name": ... }`). Treating every string as a Bazel label causes
+        // spurious "Go to Definition" results (often jumping to the package's BUILD file).
+        if self.literal_is_dict_key(&lit) && !Self::looks_like_bazel_label_or_path(&value) {
+            return None;
+        }
+
         let resolved_path = self
             .sema
             .db
@@ -630,6 +651,27 @@ impl<'a> GotoDefinitionHandler<'a> {
         }
     }
 
+    fn literal_is_dict_key(&self, lit: &ast::LiteralExpr) -> bool {
+        lit.syntax()
+            .ancestors()
+            .find_map(ast::DictEntry::cast)
+            .and_then(|entry| entry.key())
+            .map(|key| key.syntax().text_range() == lit.syntax().text_range())
+            .unwrap_or(false)
+    }
+
+    fn looks_like_bazel_label_or_path(value: &str) -> bool {
+        let value = value.trim();
+        value.starts_with('@')
+            || value.starts_with("//")
+            || value.starts_with(':')
+            || value.contains("//")
+            || value.contains(':')
+            || value.contains('/')
+            || value.ends_with(".bzl")
+            || value.ends_with(".bazel")
+    }
+
     fn find_name_in_dict_expr(
         &self,
         dict_expr: InFile<ast::DictExpr>,
@@ -698,13 +740,20 @@ pub(crate) fn goto_definition(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use starpls_bazel::APIContext;
     use starpls_common::Dialect;
+    use starpls_common::FileId;
     use starpls_common::FileInfo::Bazel;
+    use starpls_common::LoadItemCandidate;
+    use starpls_common::ResolvedPath;
     use starpls_hir::Fixture;
 
     use crate::Analysis;
+    use crate::FileLoader;
     use crate::FilePosition;
+    use crate::LoadFileResult;
     use crate::LocationLink;
 
     fn check_goto_definition(fixture: &str) {
@@ -950,6 +999,78 @@ _config_tag = tag_class(
 
         loader.add_files_from_fixture(&analysis.db, &fixture);
         check_goto_definition_from_fixture(analysis, fixture, false);
+    }
+
+    #[test]
+    fn test_dict_key_string_does_not_resolve_as_label() {
+        #[derive(Default)]
+        struct ResolveToBuildTargetLoader;
+
+        impl FileLoader for ResolveToBuildTargetLoader {
+            fn resolve_path(
+                &self,
+                path: &str,
+                dialect: Dialect,
+                _from: FileId,
+            ) -> anyhow::Result<Option<ResolvedPath>> {
+                if dialect != Dialect::Bazel {
+                    return Ok(None);
+                }
+
+                Ok(Some(ResolvedPath::BuildTarget {
+                    build_file: FileId(9999),
+                    target: path.to_string(),
+                    contents: Some(String::new()),
+                }))
+            }
+
+            fn load_file(
+                &self,
+                _path: &str,
+                _dialect: Dialect,
+                _from: FileId,
+            ) -> anyhow::Result<Option<LoadFileResult>> {
+                Ok(None)
+            }
+
+            fn list_load_candidates(
+                &self,
+                _path: &str,
+                _dialect: Dialect,
+                _from: FileId,
+            ) -> anyhow::Result<Option<Vec<LoadItemCandidate>>> {
+                Ok(None)
+            }
+
+            fn resolve_build_file(&self, _file_id: FileId) -> Option<String> {
+                None
+            }
+        }
+
+        let mut analysis = Analysis::new(
+            Arc::new(ResolveToBuildTargetLoader::default()),
+            Default::default(),
+        );
+        let (fixture, _) = Fixture::from_single_file(
+            &mut analysis.db,
+            r#"
+_config_tag = tag_class(
+    attrs = {
+        "go_e$0nv": attr.string_dict(),
+    },
+)
+"#,
+        );
+
+        let (file_id, pos) = fixture.cursor_pos.unwrap();
+        let actual = analysis
+            .snapshot()
+            .goto_definition(FilePosition { file_id, pos }, false)
+            .unwrap();
+        assert!(
+            actual.is_none(),
+            "expected no goto definition, got {actual:?}"
+        );
     }
 
     #[test]

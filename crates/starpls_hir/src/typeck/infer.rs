@@ -903,7 +903,8 @@ impl TyContext<'_> {
                             for arg in args.iter() {
                                 if let Argument::Keyword { name, expr } = arg {
                                     if name.as_str() == "applicable_licenses" {
-                                        if let Some(range) = self.keyword_arg_name_range(file, *expr)
+                                        if let Some(range) =
+                                            self.keyword_arg_name_range(file, *expr)
                                         {
                                             self.add_diagnostic_for_range(
                                                 file,
