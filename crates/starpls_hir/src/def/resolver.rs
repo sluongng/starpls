@@ -219,13 +219,10 @@ impl<'a> Resolver<'a> {
         // Add names from builtins, taking the current Bazel API context into account.
         let mut add_builtins = |api_globals: &APIGlobals| {
             for (name, func) in api_globals.functions.iter() {
-                names.insert(Name::from_str(name), ScopeDef::BuiltinFunction(*func));
+                names.insert(Name::new(name), ScopeDef::BuiltinFunction(*func));
             }
             for (name, type_ref) in api_globals.variables.iter() {
-                names.insert(
-                    Name::from_str(name),
-                    ScopeDef::BuiltinVariable(type_ref.clone()),
-                );
+                names.insert(Name::new(name), ScopeDef::BuiltinVariable(type_ref.clone()));
             }
         };
 

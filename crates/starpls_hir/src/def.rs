@@ -427,12 +427,12 @@ impl Literal {
 pub struct Name(SmolStr);
 
 impl Name {
-    pub fn from_str(name: &str) -> Self {
-        Self::new(SmolStr::new(name))
+    pub fn new(name: &str) -> Self {
+        Self::from_smol_str(SmolStr::new(name))
     }
 
     pub(crate) fn missing() -> Self {
-        Self::new(SmolStr::new_inline("[missing name]"))
+        Self::from_smol_str(SmolStr::new_inline("[missing name]"))
     }
 
     pub fn is_missing(&self) -> bool {
@@ -440,11 +440,11 @@ impl Name {
     }
 
     pub fn from_ast_name(name: ast::Name) -> Self {
-        Self::from_str(name.name().as_ref().map_or_else(|| "", |name| name.text()))
+        Self::new(name.name().as_ref().map_or_else(|| "", |name| name.text()))
     }
 
     pub fn from_ast_name_ref(name: ast::NameRef) -> Self {
-        Self::from_str(name.name().as_ref().map_or_else(|| "", |name| name.text()))
+        Self::new(name.name().as_ref().map_or_else(|| "", |name| name.text()))
     }
 
     pub fn as_str(&self) -> &str {
@@ -452,10 +452,10 @@ impl Name {
     }
 
     pub(crate) fn new_inline(name: &'static str) -> Self {
-        Self::new(SmolStr::new_inline(name))
+        Self::from_smol_str(SmolStr::new_inline(name))
     }
 
-    fn new(repr: SmolStr) -> Self {
+    fn from_smol_str(repr: SmolStr) -> Self {
         Self(repr)
     }
 }

@@ -177,7 +177,7 @@ impl BuiltinFunction {
             let loaded_file = db.load_file(path, file.dialect(db), file.id(db)).ok()??;
 
             Some(
-                match Resolver::resolve_export_in_file(db, loaded_file, &Name::from_str(name))? {
+                match Resolver::resolve_export_in_file(db, loaded_file, &Name::new(name))? {
                     Export::Variable(expr) => InFile {
                         file: loaded_file,
                         value: expr.expr,
@@ -233,7 +233,7 @@ impl BuiltinFunction {
                                                 let name = &key.value(db);
                                                 if !name.is_empty() {
                                                     Some(ProviderField {
-                                                        name: Name::from_str(key.value(db)),
+                                                        name: Name::new(key.value(db)),
                                                         doc: match value.kind() {
                                                             TyKind::String(Some(s)) => Some(
                                                                 s.value(db)
@@ -277,7 +277,7 @@ impl BuiltinFunction {
                     .and_then(|name| {
                         let text = name.text();
                         if !text.is_empty() {
-                            Some(Name::from_str(text))
+                            Some(Name::new(text))
                         } else {
                             None
                         }
@@ -319,7 +319,7 @@ impl BuiltinFunction {
                         })
                         .and_then(|name_ref| name_ref.name())
                         .as_ref()
-                        .map(|name| Name::from_str(name.text()));
+                        .map(|name| Name::new(name.text()));
                     TyKind::Provider(Provider::Custom(Arc::new(CustomProvider {
                         name,
                         doc,
@@ -431,7 +431,7 @@ impl BuiltinFunction {
                                             .filter_map(|(name, ty)| match ty.kind() {
                                                 TyKind::Attribute(Some(attr)) => {
                                                     Some(AttributeData {
-                                                        name: Name::from_str(name.value(db)),
+                                                        name: Name::new(name.value(db)),
                                                         attr: attr.clone(),
                                                     })
                                                 }
@@ -483,7 +483,7 @@ impl BuiltinFunction {
                                         .iter()
                                         .filter_map(|(name, ty)| match ty.kind() {
                                             TyKind::TagClass(tag_class) => Some(TagClassData {
-                                                name: Name::from_str(name.value(db)),
+                                                name: Name::new(name.value(db)),
                                                 tag_class: tag_class.clone(),
                                             }),
                                             _ => None,
@@ -818,7 +818,7 @@ pub(crate) fn builtin_types_query(db: &dyn Db, defs: BuiltinDefs) -> BuiltinType
                 };
 
                 fields.push(BuiltinField {
-                    name: Name::from_str(&field.name),
+                    name: Name::new(&field.name),
                     type_ref,
                     doc: normalize_doc_text(&field.doc),
                 });
@@ -842,7 +842,7 @@ pub(crate) fn builtin_types_query(db: &dyn Db, defs: BuiltinDefs) -> BuiltinType
             TyKind::BuiltinType(
                 BuiltinType::new(
                     db,
-                    Name::from_str(&type_.name),
+                    Name::new(&type_.name),
                     fields,
                     methods,
                     normalize_doc_text(&type_.doc),
@@ -873,7 +873,7 @@ fn builtin_function(
 
     BuiltinFunction::new(
         db,
-        Name::from_str(name),
+        Name::new(name),
         parent_name.map(|parent_name| parent_name.to_string()),
         callable.param.iter().map(builtin_param).collect(),
         parse_type_ref(ret_type_ref),
@@ -886,7 +886,7 @@ fn builtin_function(
 }
 
 fn builtin_param(param: &Param) -> BuiltinFunctionParam {
-    let name = Name::from_str(param.name.trim_start_matches('*'));
+    let name = Name::new(param.name.trim_start_matches('*'));
     if param.is_star_arg {
         BuiltinFunctionParam::ArgsList {
             name,
@@ -923,7 +923,7 @@ fn builtin_provider(db: &dyn Db, ty: &Type, callable: Option<&Callable>) -> Buil
             .iter()
             .filter(|field| field.callable.is_none())
             .map(|field| BuiltinFunctionParam::Simple {
-                name: Name::from_str(&field.name),
+                name: Name::new(&field.name),
                 type_ref: parse_type_ref(&field.r#type),
                 doc: normalize_doc_text(&field.doc),
                 default_value: None,
@@ -937,7 +937,7 @@ fn builtin_provider(db: &dyn Db, ty: &Type, callable: Option<&Callable>) -> Buil
         .field
         .iter()
         .map(|field| BuiltinField {
-            name: Name::from_str(&field.name),
+            name: Name::new(&field.name),
             type_ref: maybe_field_type_ref_override(&ty.name, &field.name)
                 .unwrap_or_else(|| parse_type_ref(&field.r#type)),
             doc: normalize_doc_text(&field.doc),
@@ -945,7 +945,7 @@ fn builtin_provider(db: &dyn Db, ty: &Type, callable: Option<&Callable>) -> Buil
         .collect();
     BuiltinProvider::new(
         db,
-        Name::from_str(&ty.name),
+        Name::new(&ty.name),
         params,
         provider_fields,
         normalize_doc_text(&ty.doc),
@@ -984,7 +984,7 @@ pub(crate) fn common_attributes_query(db: &dyn Db) -> CommonAttributes {
                 use AttributeKind::*;
 
                 (
-                    Name::from_str(&attr.name),
+                    Name::new(&attr.name),
                     Attribute {
                         kind: match attr.r#type {
                             attr::AttributeKind::Bool => Bool,
@@ -1120,7 +1120,7 @@ fn parse_type_ref(text: &str) -> TypeRef {
 
 fn type_ref_with_single_arg(name: &str, element: Option<&str>) -> TypeRef {
     TypeRef::Name(
-        Name::from_str(name),
+        Name::new(name),
         Some(vec![element.map_or(TypeRef::Unknown, parse_type_ref)].into_boxed_slice()),
     )
 }
@@ -1155,9 +1155,9 @@ fn attrs_from_dict_literal(db: &dyn Db, lit: &DictLiteral, allow_none: bool) -> 
             .iter()
             .filter_map(|(name, ty)| match ty.kind() {
                 TyKind::Attribute(Some(attr)) => {
-                    Some((Name::from_str(name.value(db)), Some(attr.clone())))
+                    Some((Name::new(name.value(db)), Some(attr.clone())))
                 }
-                TyKind::None if allow_none => Some((Name::from_str(name.value(db)), None)),
+                TyKind::None if allow_none => Some((Name::new(name.value(db)), None)),
                 _ => None,
             })
             .collect::<Vec<_>>(),

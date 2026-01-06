@@ -502,7 +502,7 @@ impl<'a> LoweringContext<'a> {
             .and_then(|name| name.name())
             .as_ref()
             .map(|token| token.text())
-            .map_or_else(Name::missing, Name::from_str)
+            .map_or_else(Name::missing, Name::new)
     }
 
     fn lower_name_ref_opt(&mut self, syntax: Option<ast::NameRef>) -> Name {
@@ -510,7 +510,7 @@ impl<'a> LoweringContext<'a> {
             .and_then(|name| name.name())
             .as_ref()
             .map(|token| token.text())
-            .map_or_else(Name::missing, Name::from_str)
+            .map_or_else(Name::missing, Name::new)
     }
 
     fn lower_suite_opt(&mut self, syntax: Option<ast::Suite>) -> Box<[StmtId]> {
@@ -639,7 +639,7 @@ impl<'a> LoweringContext<'a> {
                 let segments = node
                     .segments()
                     .flat_map(|segment| segment.value())
-                    .map(|token| Name::from_str(token.text()))
+                    .map(|token| Name::new(token.text()))
                     .collect();
                 Some(TypeRef::Path(
                     segments,

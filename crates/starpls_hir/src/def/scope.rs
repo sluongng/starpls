@@ -374,7 +374,7 @@ impl ScopeCollector<'_> {
                     };
                     self.scopes.add_decl(
                         *current,
-                        Name::from_str(name),
+                        Name::new(name),
                         ScopeDef::LoadItem(LoadItemDef {
                             file: self.file,
                             load_item: *item,

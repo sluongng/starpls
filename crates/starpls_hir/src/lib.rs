@@ -184,7 +184,7 @@ impl<'a> Semantics<'a> {
         let segments = node
             .segments()
             .flat_map(|segment| segment.value())
-            .map(|token| Name::from_str(token.text()))
+            .map(|token| Name::new(token.text()))
             .collect::<SmallVec<_>>();
         Some(
             with_tcx(self.db, |tcx| {
@@ -820,7 +820,7 @@ impl LoadItem {
     pub fn name(&self, db: &dyn Db) -> Name {
         match &module(db, self.id.file).load_items[self.id.value] {
             def::LoadItem::Direct { name, .. } | def::LoadItem::Aliased { name, .. } => {
-                Name::from_str(name)
+                Name::new(name)
             }
         }
     }

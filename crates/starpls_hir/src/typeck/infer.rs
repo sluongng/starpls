@@ -2345,7 +2345,7 @@ impl TyContext<'_> {
                             match Resolver::resolve_export_in_file(
                                 db,
                                 loaded_file,
-                                &Name::from_str(name),
+                                &Name::new(name),
                             ) {
                                 Some(Export::Variable(expr)) => {
                                     tcx.infer_expr(loaded_file, expr.expr)

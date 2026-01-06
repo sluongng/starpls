@@ -207,7 +207,7 @@ impl<'a> GotoDefinitionHandler<'a> {
             )
             .ok()??;
 
-        let export_name = Name::from_str(&extension_name);
+        let export_name = Name::new(&extension_name);
         let module_scope = self.sema.scope_for_module(loaded_file);
         let def = module_scope.resolve_name(&export_name).into_iter().next()?;
         let module_extension_call = self.resolve_module_extension_call_expr(def, 0)?;
@@ -425,7 +425,7 @@ impl<'a> GotoDefinitionHandler<'a> {
             )
             .ok()??;
 
-        let export_name = Name::from_str(&extension_name);
+        let export_name = Name::new(&extension_name);
         let module_scope = self.sema.scope_for_module(loaded_file);
         let def = module_scope.resolve_name(&export_name).into_iter().next()?;
         let module_extension_call = self.resolve_module_extension_call_expr(def, 0)?;
@@ -1058,10 +1058,7 @@ _config_tag = tag_class(
             }
         }
 
-        let mut analysis = Analysis::new(
-            Arc::new(ResolveToBuildTargetLoader::default()),
-            Default::default(),
-        );
+        let mut analysis = Analysis::new(Arc::new(ResolveToBuildTargetLoader), Default::default());
         let (fixture, _) = Fixture::from_single_file(
             &mut analysis.db,
             r#"

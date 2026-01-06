@@ -193,7 +193,7 @@ impl TypeRef {
         if name.is_empty() {
             Self::Unknown
         } else {
-            Self::Name(Name::from_str(name), None)
+            Self::Name(Name::new(name), None)
         }
     }
 
@@ -881,7 +881,7 @@ impl Param {
                 param.name().cloned().or_else(|| {
                     Some(match param {
                         IntrinsicFunctionParam::Positional { .. } => {
-                            Name::from_str(&format!("x{index}"))
+                            Name::new(&format!("x{index}"))
                         }
                         IntrinsicFunctionParam::ArgsList { .. } => Name::new_inline("args"),
                         IntrinsicFunctionParam::KwargsDict => Name::new_inline("kwargs"),
@@ -1156,7 +1156,7 @@ impl Field {
                 .expect("expected module_extension tag classes")[index]
                 .name
                 .clone(),
-            FieldInner::StaticField { name, .. } => Name::from_str(name),
+            FieldInner::StaticField { name, .. } => Name::new(name),
         }
     }
 
